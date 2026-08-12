@@ -189,31 +189,6 @@ PostgreSQL is used for both relational ticket data and vector storage
 through pgvector, avoiding the need for a separate vector database in
 the PoC.
 
-## Current Status
-
-Implemented:
-
--   Spring Boot project setup;
--   PostgreSQL + pgvector through Docker Compose;
--   Flyway schema management;
--   `ticket` database schema;
--   synthetic dataset with 10,000 tickets;
--   CSV import;
--   validation of injected authentication and payment patterns;
--   JPA `Ticket` entity;
--   basic Spring Data repository/API work.
-
-Next:
-
-1.  Complete basic structured-data access.
-2.  Integrate the first real-time LLM call.
-3.  Provide SQL-derived ticket statistics to the LLM.
-4.  Add the support knowledge documents.
-5.  Generate and store document embeddings.
-6.  Implement pgvector similarity search.
-7.  Implement RAG.
-8.  Combine SQL + RAG context in the final LLM request.
-
 ## Running PostgreSQL
 
 Start the database:
