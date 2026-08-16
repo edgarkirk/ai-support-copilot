@@ -1,35 +1,30 @@
 # AI Support Copilot
 
 AI Support Copilot is a proof-of-concept Spring Boot application that
-explores how a Large Language Model can combine **structured
+demonstrates how a Large Language Model can combine **structured
 support-ticket data** with **unstructured support knowledge** to answer
 operational questions in natural language.
 
-The main goal is to learn and demonstrate a practical enterprise AI
-workflow without overengineering:
-
-**PostgreSQL + RAG + LLM**
+**PostgreSQL + RAG + LLM + Tool Calling + Streaming**
 
 ## Problem
 
 Support information is usually distributed across multiple sources:
 
--   ticket and incident databases;
--   troubleshooting guides;
--   support policies;
--   incident post-mortems;
--   operational documentation.
+- ticket and incident databases;
+- troubleshooting guides;
+- support policies;
+- incident post-mortems;
+- operational documentation.
 
 Answering a question such as:
 
 > Why did authentication issues increase recently, and what should the
 > support team do?
 
-may require both quantitative analysis of ticket data and searching
-internal documentation.
-
-AI Support Copilot aims to combine those sources into one grounded
-answer.
+requires both quantitative analysis of ticket data and searching
+internal documentation. AI Support Copilot combines those sources into
+one grounded answer.
 
 ## Target Scenarios
 
@@ -37,14 +32,15 @@ answer.
 
 > How many authentication issues occurred in July?
 
-The application retrieves facts from PostgreSQL and uses them as context
-for the AI response.
+The LLM calls a **ticket data tool** to query PostgreSQL, then uses the
+result to form the answer.
 
 ### Knowledge question
 
 > What should support do when authentication failures increase?
 
-The application retrieves relevant knowledge using RAG.
+The LLM calls a **knowledge search tool** to retrieve relevant documents
+via hybrid RAG (vector + full-text search).
 
 ### Mixed question
 
@@ -52,332 +48,324 @@ The application retrieves relevant knowledge using RAG.
 > ticket data and support knowledge, what is the likely problem and what
 > should we do?
 
-This is the primary PoC scenario.
+The LLM calls **both tools**, combining ticket statistics with knowledge
+base content to produce a grounded answer with source citations.
 
-The intended flow is:
+## Architecture
 
-``` text
-User question
-      |
-      +-------------------+
-      |                   |
-      v                   v
-SQL ticket analysis    RAG search
-      |                   |
-      +---------+---------+
-                |
-                v
-          Combined context
-                |
-                v
-               LLM
-                |
-                v
-          Grounded answer
 ```
+                        User
+                         |
+                         v
+                    Chat UI (SSE)
+                         |
+                         v
+                  Spring Boot API
+                         |
+                         v
+                   ChatClient + Tools
+                    /              \
+                   /                \
+                  v                  v
+         TicketTools (SQL)    KnowledgeTools (RAG)
+              |                      |
+              v                      v
+          PostgreSQL            pgvector
+        (ticket data)     (hybrid search: vector
+                           + full-text with RRF)
+                  \                  /
+                   \                /
+                    v              v
+                     LLM (GPT-4o)
+                         |
+                         v
+                  Streamed answer
+                  with source citations
+```
+
+### Key Design Decisions
+
+- **Tool calling** — the LLM decides which tools to invoke. No hardcoded
+  routing or context stuffing.
+- **Hybrid RAG** — vector cosine similarity + PostgreSQL full-text search,
+  merged via Reciprocal Rank Fusion (RRF).
+- **Single database** — PostgreSQL serves both relational data and vector
+  storage (pgvector), avoiding a separate vector database.
+- **SSE streaming** — tokens stream to the UI in real-time via
+  Server-Sent Events using `SseEmitter`.
+- **Observable tool callbacks** — decorator pattern wraps tool execution
+  to emit real-time tool call indicators to the UI.
 
 ## Technology Stack
 
--   Java
--   Spring Boot
--   Spring Web
--   Spring Data JPA
--   Maven
--   PostgreSQL
--   pgvector
--   Flyway
--   Docker Compose
--   LLM integration
--   Embeddings and Retrieval-Augmented Generation (RAG)
+| Layer      | Technology                                |
+|------------|-------------------------------------------|
+| Language   | Java 21                                   |
+| Framework  | Spring Boot 4.1, Spring AI 1.1.2          |
+| AI Model   | Azure OpenAI (GPT-4o) via EPAM DIAL proxy |
+| Embeddings | text-embedding-3-small                    |
+| Database   | PostgreSQL 17 + pgvector                  |
+| Migrations | Flyway                                    |
+| Build      | Maven                                     |
+| Container  | Docker Compose                            |
+| UI         | Thymeleaf + vanilla JS                    |
+
+## AI Techniques Demonstrated
+
+| Technique                                | Implementation                                                                       |
+|------------------------------------------|--------------------------------------------------------------------------------------|
+| **LLM Tool Calling**                     | Spring AI `@Tool` annotations; LLM autonomously selects which tools to call          |
+| **RAG (Retrieval-Augmented Generation)** | Knowledge base documents chunked, embedded, and stored in pgvector                   |
+| **Hybrid Search**                        | Vector similarity + full-text search combined via RRF                                |
+| **Chunking Strategy**                    | Strategy pattern — section-based splitting by markdown headings                      |
+| **Streaming**                            | SSE via `SseEmitter` with `Flux` from Spring AI's streaming API                      |
+| **Tool Call Transparency**               | `ObservableToolCallback` decorator emits tool names as SSE events                    |
+| **Guardrails**                           | System prompt constrains the LLM to support-related topics only                      |
+| **Source Citations**                     | System prompt instructs LLM to cite document names and data queries                  |
+| **Conversation Memory**                  | `MessageWindowChatMemory` maintains 20-message sliding window per session            |
+| **Auto-ingestion**                       | Knowledge base documents are automatically ingested on startup if the table is empty |
+| **RAG Evaluation**                       | Endpoint runs 10 test cases and scores answers by keyword matching                   |
 
 ## Data
 
 ### Structured data
 
-The PoC uses a synthetic dataset containing **10,000 support tickets**.
+A synthetic dataset of **10,000 support tickets** stored in PostgreSQL.
 
-The PostgreSQL table is:
-
-``` text
-ticket
-
-id
-created_at
-customer_id
-product
-category
-priority
-status
-description
-resolution
-resolved_at
+```
+ticket(id, created_at, customer_id, product, category, priority, status,
+       description, resolution, resolved_at)
 ```
 
-Example categories include:
+Categories: AUTHENTICATION, PAYMENT, REFUND, ACCOUNT, PERFORMANCE, UI,
+NOTIFICATIONS, SUBSCRIPTION, DELIVERY, SEARCH, PROFILE.
 
--   AUTHENTICATION
--   PAYMENT
--   REFUND
--   ACCOUNT
--   PERFORMANCE
--   UI
--   NOTIFICATIONS
--   SUBSCRIPTION
--   DELIVERY
--   SEARCH
--   PROFILE
+The dataset contains deliberately injected patterns — authentication
+tickets spike in July/August, payment tickets spike late July.
 
-The dataset contains deliberately injected patterns to make the demo
-reproducible.
+### Unstructured data (Knowledge Base)
 
-For example, authentication tickets increase significantly in July and
-August, while payment tickets contain a concentrated spike near the end
-of July.
+15 markdown documents across 5 categories:
 
-Structured data is stored under:
-
-``` text
-src/main/resources/data/structured/
+```
+src/main/resources/data/knowledge/
+├── known-issues/          # Active bugs and workarounds
+├── policies/              # Refund, escalation, SLA response times
+├── postmortems/           # Incident reports with root cause analysis
+├── product/               # Service architecture overviews
+└── troubleshooting/       # Step-by-step troubleshooting guides
 ```
 
-### Unstructured data
-
-A small support knowledge base will be used for RAG.
-
-Planned content includes:
-
--   authentication troubleshooting;
--   payment troubleshooting;
--   support policies;
--   incident post-mortems.
-
-Markdown is used initially to keep document ingestion simple and focus
-on learning RAG rather than document parsing.
-
-## Architecture
-
-``` text
-                    User
-                      |
-                      v
-              Spring Boot REST API
-                      |
-                      v
-              Question processing
-                /            \
-               /              \
-              v                v
-     Structured data          RAG
-       PostgreSQL          Knowledge docs
-          |                    |
-          |                Embeddings
-          |                    |
-          |                 pgvector
-          \                    /
-           \                  /
-            v                v
-             Context Builder
-                   |
-                   v
-                  LLM
-                   |
-                   v
-             Grounded Answer
-```
-
-PostgreSQL is used for both relational ticket data and vector storage
-through pgvector, avoiding the need for a separate vector database in
-the PoC.
-
-## Running PostgreSQL
-
-Start the database:
-
-``` bash
-docker compose up -d
-```
-
-The PostgreSQL container is exposed on:
-
-``` text
-localhost:5433
-```
-
-Default development database configuration:
-
-``` text
-Database: ai_support
-Username: ai_support
-Password: ai_support
-```
-
-The Spring Boot datasource therefore uses:
-
-``` text
-jdbc:postgresql://localhost:5433/ai_support
-```
+Covers three domains: **authentication**, **payments**, and
+**notifications/accounts**.
 
 ## Database Schema
 
-Flyway migrations are located under:
+Three Flyway migrations:
 
-``` text
-src/main/resources/db/migration/
+| Migration                           | Description                                                        |
+|-------------------------------------|--------------------------------------------------------------------|
+| `V1__initial_schema.sql`            | `ticket` table + pgvector extension                                |
+| `V2__knowledge_embeddings.sql`      | `knowledge_chunk` table with `vector(1536)` column + IVFFlat index |
+| `V3__knowledge_fulltext_search.sql` | `content_tsv` generated column + GIN index for full-text search    |
+
+## API Endpoints
+
+| Endpoint                | Method | Description                                     |
+|-------------------------|--------|-------------------------------------------------|
+| `/`                     | GET    | Chat UI                                         |
+| `/api/ai/ask`           | POST   | Blocking AI response                            |
+| `/api/ai/ask/stream`    | POST   | SSE streaming AI response with tool call events |
+| `/api/knowledge/ingest` | POST   | Re-ingest knowledge base documents              |
+| `/api/evaluation/run`   | POST   | Run RAG evaluation suite (10 test cases)        |
+| `/api/tickets/**`       | GET    | Ticket data endpoints for manual verification   |
+
+## Getting Started
+
+### Prerequisites
+
+- Java 21
+- Maven
+- Docker
+
+### 1. Start PostgreSQL
+
+```bash
+docker compose up -d
 ```
 
-The initial migration creates the `ticket` table and enables pgvector:
+Exposed on `localhost:5433` (database: `ai_support`, user: `ai_support`,
+password: `ai_support`).
 
-``` sql
-CREATE EXTENSION IF NOT EXISTS vector;
+### 2. Configure AI credentials
+
+Set environment variables:
+
+```bash
+export AZURE_OPEN_AI_ENDPOINT=https://ai-proxy.lab.epam.com
+export AZURE_OPEN_AI_KEY=your-api-key
 ```
 
-Flyway applies migrations automatically when the Spring Boot application
-starts.
+To use a different model, override the deployment name:
 
-## Importing the Ticket Dataset
-
-The structured dataset and import script are located under:
-
-``` text
-src/main/resources/data/structured/
-├── tickets.csv
-└── import_tickets.sql
+```bash
+export AZURE_OPEN_AI_DEPLOYMENT_NAME=gpt-4o
 ```
 
-If `psql` is not installed locally, the PostgreSQL client inside the
-Docker container can be used.
+> **Note:** Non-OpenAI models (e.g. `anthropic.claude-sonnet-5`) behind the
+> DIAL proxy may not support streaming with tool calls due to Spring AI's
+> Azure OpenAI adapter expecting OpenAI-specific streaming chunk formats.
+> The blocking endpoint (`/api/ai/ask`) works with any model.
 
-From the structured-data directory, copy the files into the container:
+### 3. Run the application
 
-``` bash
-docker cp tickets.csv ai-support-postgres:/tmp/tickets.csv
-docker cp import_tickets.sql ai-support-postgres:/tmp/import_tickets.sql
-```
-
-Run the import:
-
-``` bash
-docker exec -it ai-support-postgres \
-  psql -U ai_support -d ai_support \
-  -f /tmp/import_tickets.sql
-```
-
-Verify the number of records:
-
-``` bash
-docker exec -it ai-support-postgres \
-  psql -U ai_support -d ai_support \
-  -c "SELECT COUNT(*) FROM ticket;"
-```
-
-Expected result:
-
-``` text
-10000
-```
-
-## Running the Application
-
-Run tests:
-
-``` bash
-./mvnw test
-```
-
-Start Spring Boot:
-
-``` bash
+```bash
 ./mvnw spring-boot:run
 ```
 
-The application is available by default at:
+The application starts at `http://localhost:8080`. On first startup,
+Flyway creates the database schema and knowledge base documents are
+**automatically ingested**.
 
-``` text
-http://localhost:8080
+### 4. Import ticket data
+
+In a separate terminal (the app must be running so the `ticket` table exists):
+
+```bash
+docker cp src/main/resources/data/structured/tickets.csv ai-support-postgres:/tmp/tickets.csv
+docker cp src/main/resources/data/structured/import_tickets.sql ai-support-postgres:/tmp/import_tickets.sql
+docker exec ai-support-postgres \
+  psql -U ai_support -d ai_support -f /tmp/import_tickets.sql
 ```
 
-## AI Design
+### 5. Verify setup
 
-The PoC will use AI at runtime.
+Verify ticket data is loaded:
 
-The intended request flow is:
-
-``` text
-User question
-      |
-      v
-Spring Boot
-      |
-      +----> query structured ticket data
-      |
-      +----> retrieve relevant knowledge with RAG
-      |
-      v
-Build grounded context
-      |
-      v
-Send request to LLM
-      |
-      v
-Return generated answer
+```bash
+curl -s http://localhost:8080/api/tickets/count/AUTHENTICATION
 ```
 
-The LLM should not be treated as the source of ticket facts. Facts
-should come from PostgreSQL, and support knowledge should come from
-retrieved documents.
+Verify knowledge base is populated:
 
-The LLM's main role is to interpret the question and synthesize the
-supplied evidence into a useful response.
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the refund policy?"}'
+```
 
-## PoC Scope
+## Usage
 
-The project intentionally avoids unnecessary production complexity.
+### Chat UI
 
-Out of scope for the initial PoC:
+Open `http://localhost:8080` for the interactive chat interface. Features:
 
--   production authentication and authorization;
--   complex frontend development;
--   multiple databases;
--   a separate vector database;
--   large-scale document ingestion;
--   autonomous agents;
--   advanced orchestration frameworks;
--   production monitoring;
--   generic CRUD functionality.
+- Real-time **streaming** responses (tokens appear as they are generated)
+- **Tool call indicators** with spinners showing which tools the LLM is
+  calling (e.g., "Searching knowledge base", "Querying ticket count")
+- **Conversation memory** — follow-up questions work within the same session
+- Example questions to get started
 
-The focus is on understanding:
+### API (curl examples)
 
--   real-time LLM integration;
--   structured-data grounding;
--   embeddings;
--   vector similarity search;
--   RAG;
--   combining structured and unstructured context;
--   grounded AI responses.
+**Blocking response:**
 
-## Demo Goal
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How many authentication issues occurred in July?"}'
+```
 
-The final demonstration should progress through three questions:
+**Streaming response (SSE):**
 
-**1. Structured data**
+```bash
+curl -s -N -X POST http://localhost:8080/api/ai/ask/stream \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How many authentication issues occurred in July?"}'
+```
 
-> How many authentication issues occurred in July?
+The SSE stream emits named events:
 
-**2. RAG**
+- `tool_call` — name of the tool being executed
+- `content` — text token from the LLM response
+- `done` — stream complete
+- `error` — error occurred
 
-> What should support do when authentication failures increase?
+**RAG evaluation (runs 10 test cases, takes 1-2 minutes):**
 
-**3. SQL + RAG + LLM**
+```bash
+curl -s -X POST http://localhost:8080/api/evaluation/run | python3 -m json.tool
+```
 
-> Why did authentication issues increase recently, and what should we
-> do?
+Returns a JSON report with pass/fail per test case, matched/missed
+keywords, and an overall score.
 
-The third question is the main demonstration of the project.
+## Demo Questions
 
-## Project Goal
+### Structured data (SQL tools)
 
-The project is successful when a user can ask a natural-language support
-question and receive a real-time AI-generated response grounded in both:
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How many authentication issues occurred in July?"}'
+```
 
-1.  actual support-ticket statistics from PostgreSQL; and
-2.  relevant information retrieved from the support knowledge base.
+### Knowledge base (RAG)
+
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What should support do when authentication failures increase?"}'
+```
+
+### Mixed — SQL + RAG + LLM (primary scenario)
+
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Authentication issues increased significantly in July. Based on our ticket data and support knowledge, what is the likely problem and what should we do?"}'
+```
+
+### Guardrails (off-topic rejection)
+
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How do I make pasta?"}'
+```
+
+### Notifications domain
+
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "A customer is not receiving order confirmation emails. What should I do?"}'
+```
+
+### Account domain
+
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "A customer account is locked after too many failed login attempts. How do I help them?"}'
+```
+
+### SLA policy
+
+```bash
+curl -s -X POST http://localhost:8080/api/ai/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the SLA response time for critical incidents?"}'
+```
+
+## Project Scope
+
+This is a learning PoC for an AI course. It intentionally avoids
+production complexity (auth, complex frontend, multiple databases,
+agents, monitoring) and focuses on demonstrating AI integration patterns:
+
+- LLM tool calling (not context stuffing)
+- Hybrid RAG with RRF (not naive top-K vector search)
+- Streaming with tool call transparency
+- Grounded responses with source citations
+- Evaluation of RAG quality
