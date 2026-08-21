@@ -288,8 +288,8 @@
 </head>
 <body>
     <header>
-        <h1>AI Support Copilot</h1>
-        <span>SQL + RAG + LLM | Streaming</span>
+        <h1 style="cursor: pointer;" onclick="location.reload()">AI Support Copilot</h1>
+        <span>SQL + RAG + LLM</span>
     </header>
 
     <div class="chat-container" id="chatContainer">
@@ -338,76 +338,44 @@
             questionInput.value = '';
             sendBtn.disabled = true;
 
-            const toolIndicators = [];
-            let assistantDiv = null;
-            let rawText = '';
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.textContent = 'Thinking...';
+            chatContainer.appendChild(typingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
 
             try {
-                const response = await fetch('/api/ai/ask/stream', {
+                const response = await fetch('/api/ai/ask', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ question: question })
                 });
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
+                typingDiv.remove();
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                if (!response.ok) {
+                    appendMessage('Error: ' + response.statusText, 'assistant');
+                } else {
+                    const data = await response.json();
 
-                    buffer += decoder.decode(value, { stream: true });
-
-                    // SSE events are separated by double newlines
-                    const events = buffer.split('\n\n');
-                    buffer = events.pop(); // keep incomplete event in buffer
-
-                    for (const eventBlock of events) {
-                        let eventName = null;
-                        const dataLines = [];
-
-                        for (const line of eventBlock.split('\n')) {
-                            if (line.startsWith('event:')) {
-                                eventName = line.substring(6).trim();
-                            } else if (line.startsWith('data:')) {
-                                dataLines.push(line.substring(5));
-                            }
-                        }
-
-                        // Multi-line SSE data: join with newlines (per SSE spec)
-                        const data = dataLines.join('\n');
-
-                        if (eventName === 'tool_call') {
-                            const toolName = data.trim();
-                            const label = TOOL_LABELS[toolName] || toolName;
-                            const indicator = document.createElement('div');
-                            indicator.className = 'tool-indicator';
-                            indicator.innerHTML = '<div class="spinner"></div>' + escapeHtml(label);
-                            chatContainer.appendChild(indicator);
-                            toolIndicators.push(indicator);
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                        } else if (eventName === 'content') {
-                            if (!assistantDiv) {
-                                toolIndicators.forEach(el => el.classList.add('done'));
-                                assistantDiv = document.createElement('div');
-                                assistantDiv.className = 'message assistant';
-                                chatContainer.appendChild(assistantDiv);
-                            }
-                            rawText += data;
-                            assistantDiv.innerHTML = marked.parse(rawText);
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                        } else if (eventName === 'error') {
-                            toolIndicators.forEach(el => el.classList.add('done'));
-                            appendMessage('Error: ' + data.trim(), 'assistant');
-                        }
+                    for (const toolName of data.toolCalls) {
+                        const label = TOOL_LABELS[toolName] || toolName;
+                        const indicator = document.createElement('div');
+                        indicator.className = 'tool-indicator done';
+                        indicator.textContent = label;
+                        chatContainer.appendChild(indicator);
                     }
+
+                    appendMessage(data.content, 'assistant');
+
+                    const durationDiv = document.createElement('div');
+                    durationDiv.className = 'typing-indicator';
+                    durationDiv.textContent = (data.durationMs / 1000).toFixed(1) + 's';
+                    chatContainer.appendChild(durationDiv);
                 }
             } catch (error) {
-                toolIndicators.forEach(el => el.classList.add('done'));
-                if (!assistantDiv) {
-                    appendMessage('Error: Could not reach the server.', 'assistant');
-                }
+                typingDiv.remove();
+                appendMessage('Error: Could not reach the server.', 'assistant');
             }
 
             sendBtn.disabled = false;

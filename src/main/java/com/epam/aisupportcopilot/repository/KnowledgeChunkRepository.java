@@ -7,6 +7,11 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Repository for knowledge chunks stored with pgvector embeddings.
+ * Provides hybrid search combining vector cosine similarity and full-text keyword matching
+ * using Reciprocal Rank Fusion (RRF) scoring.
+ */
 @Repository
 public interface KnowledgeChunkRepository extends JpaRepository<KnowledgeChunk, Long> {
 
@@ -28,13 +33,14 @@ public interface KnowledgeChunkRepository extends JpaRepository<KnowledgeChunk, 
                 FROM knowledge_chunk
                 WHERE content_tsv @@ websearch_to_tsquery('english', :query)
             )
-            SELECT v.id, v.source, v.content
+        SELECT v.id, v.source, v.content,
+               (1.0 / (60 + v.vector_rank)) + COALESCE(1.0 / (60 + k.keyword_rank), 0) AS rrf_score
             FROM vector_ranked v
             LEFT JOIN keyword_ranked k ON v.id = k.id
-            ORDER BY (1.0 / (60 + v.vector_rank)) + COALESCE(1.0 / (60 + k.keyword_rank), 0) DESC
+        ORDER BY rrf_score DESC
             LIMIT :limit
             """, nativeQuery = true)
-    List<KnowledgeChunk> findHybrid(String queryEmbedding, String query, int limit);
+    List<Object[]> findHybridWithScore(String queryEmbedding, String query, int limit);
 
     void deleteAllBySource(String source);
 }

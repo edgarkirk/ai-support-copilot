@@ -1,13 +1,17 @@
 package com.epam.aisupportcopilot.config;
 
 import com.epam.aisupportcopilot.repository.KnowledgeChunkRepository;
-import com.epam.aisupportcopilot.service.KnowledgeIngestion;
+import com.epam.aisupportcopilot.service.knowledge.KnowledgeIngestion;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.EventListener;
 
+/**
+ * Automatically ingests knowledge base documents on application startup
+ * if the database is empty. Skips ingestion if chunks already exist.
+ */
 @Configuration
 @RequiredArgsConstructor
 @Slf4j

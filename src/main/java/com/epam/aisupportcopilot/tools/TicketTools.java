@@ -4,7 +4,7 @@ import com.epam.aisupportcopilot.dto.CategoryCount;
 import com.epam.aisupportcopilot.dto.MonthlyTicketStat;
 import com.epam.aisupportcopilot.dto.TicketSummary;
 import com.epam.aisupportcopilot.enums.TicketCategory;
-import com.epam.aisupportcopilot.service.TicketAnalysisService;
+import com.epam.aisupportcopilot.service.ticket.TicketAnalysisService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.Function;
@@ -14,6 +14,12 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+/**
+ * LLM-callable tools for querying the support ticket database.
+ * Each method is annotated with {@code @Tool} so Spring AI exposes it as a function
+ * the LLM can invoke during conversation. Tool descriptions guide the model to choose
+ * the most efficient query for each user question.
+ */
 @Component
 @RequiredArgsConstructor
 public class TicketTools {
@@ -22,8 +28,10 @@ public class TicketTools {
 
     private final TicketAnalysisService ticketAnalysisService;
 
-    @Tool(description = "Get the total number of support tickets for a given category. " +
-            "Categories: NOTIFICATIONS, ACCOUNT, UI, PERFORMANCE, SUBSCRIPTION, DELIVERY, SEARCH, PROFILE, AUTHENTICATION, PAYMENT, REFUND")
+    @Tool(description = "Get the total number of support tickets for a given category (all time). " +
+        "Categories: NOTIFICATIONS, ACCOUNT, UI, PERFORMANCE, SUBSCRIPTION, DELIVERY, SEARCH, PROFILE, AUTHENTICATION, PAYMENT, REFUND. " +
+        "For counts within a date range, use getTicketCountByDateRange instead. " +
+        "For comparing all categories at once, use getCategoryBreakdown instead.")
     public String getTicketCount(
             @ToolParam(description = "Ticket category, e.g. AUTHENTICATION") TicketCategory category) {
         long count = ticketAnalysisService.countByCategory(category);
@@ -31,7 +39,8 @@ public class TicketTools {
     }
 
     @Tool(description = "Get the number of support tickets for a category within a date range. " +
-            "Use ISO date-time format: yyyy-MM-ddTHH:mm:ss")
+        "Use ISO date-time format: yyyy-MM-ddTHH:mm:ss. " +
+        "For trend analysis across multiple months, prefer getMonthlyTrend instead of calling this repeatedly.")
     public String getTicketCountByDateRange(
             @ToolParam(description = "Ticket category") TicketCategory category,
             @ToolParam(description = "Start date-time, e.g. 2026-07-01T00:00:00") LocalDateTime from,
@@ -41,7 +50,8 @@ public class TicketTools {
     }
 
     @Tool(description = "Get monthly ticket trend for a category. " +
-            "Returns ticket count per month, useful for identifying spikes or trends.")
+        "Returns ticket count per month for ALL available months. " +
+        "Preferred over multiple getTicketCountByDateRange calls for trend analysis, spike detection, or month-over-month comparison.")
     public String getMonthlyTrend(
             @ToolParam(description = "Ticket category") TicketCategory category) {
         List<MonthlyTicketStat> trend = ticketAnalysisService.getMonthlyTrend(category);
@@ -50,8 +60,9 @@ public class TicketTools {
                 category + " monthly trend:\n");
     }
 
-    @Tool(description = "Get ticket count breakdown by all categories within a date range. " +
-            "Useful for comparing which categories have the most tickets in a period.")
+    @Tool(description = "Get ticket count breakdown by ALL categories within a date range in a single call. " +
+        "Preferred over multiple getTicketCount calls when comparing categories. " +
+        "Returns every category with its count for the given period.")
     public String getCategoryBreakdown(
             @ToolParam(description = "Start date-time") LocalDateTime from,
             @ToolParam(description = "End date-time") LocalDateTime to) {

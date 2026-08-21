@@ -1,6 +1,6 @@
 package com.epam.aisupportcopilot.controller;
 
-import com.epam.aisupportcopilot.service.KnowledgeIngestion;
+import com.epam.aisupportcopilot.service.knowledge.KnowledgeIngestion;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

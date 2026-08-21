@@ -12,6 +12,11 @@ spring:
       ddl-auto: validate
     open-in-view: false
 
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=10m
+
   flyway:
     enabled: true
 
@@ -23,6 +28,7 @@ spring:
         chat:
           options:
             deployment-name: ${AZURE_OPEN_AI_DEPLOYMENT_NAME:gpt-4o}
+            temperature: 1.0
         embedding:
           options:
             deployment-name: ${AZURE_OPEN_AI_EMBEDDING_DEPLOYMENT_NAME:text-embedding-3-small-1}

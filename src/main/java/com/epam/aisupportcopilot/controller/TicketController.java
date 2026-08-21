@@ -4,7 +4,7 @@ import com.epam.aisupportcopilot.dto.CategoryCount;
 import com.epam.aisupportcopilot.dto.MonthlyTicketStat;
 import com.epam.aisupportcopilot.dto.TicketSummary;
 import com.epam.aisupportcopilot.enums.TicketCategory;
-import com.epam.aisupportcopilot.service.TicketAnalysisService;
+import com.epam.aisupportcopilot.service.ticket.TicketAnalysisService;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;

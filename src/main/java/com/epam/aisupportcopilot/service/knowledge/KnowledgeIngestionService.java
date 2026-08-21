@@ -1,4 +1,4 @@
-package com.epam.aisupportcopilot.service;
+package com.epam.aisupportcopilot.service.knowledge;
 
 import com.epam.aisupportcopilot.entity.KnowledgeChunk;
 import com.epam.aisupportcopilot.repository.KnowledgeChunkRepository;
@@ -14,6 +14,11 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Reads markdown documents from the classpath, splits them into chunks via
+ * {@link ChunkingStrategy}, generates vector embeddings, and persists everything
+ * to PostgreSQL with pgvector. Existing chunks for a source are deleted before re-ingestion.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j

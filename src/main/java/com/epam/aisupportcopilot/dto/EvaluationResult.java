@@ -11,10 +11,9 @@ public record EvaluationResult(
 ) {
     public record TestCaseResult(
             String question,
-            List<String> expectedKeywords,
-            List<String> matchedKeywords,
-            List<String> missedKeywords,
             boolean passed,
+            int llmScore,
+            String llmReasoning,
             String answer
     ) {}
 }

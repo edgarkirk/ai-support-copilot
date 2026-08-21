@@ -1,7 +1,7 @@
 package com.epam.aisupportcopilot.tools;
 
 import com.epam.aisupportcopilot.dto.KnowledgeChunkResult;
-import com.epam.aisupportcopilot.service.KnowledgeRetrieval;
+import com.epam.aisupportcopilot.service.knowledge.KnowledgeRetrieval;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +9,11 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+/**
+ * LLM-callable tool for searching the RAG knowledge base.
+ * Delegates to {@link KnowledgeRetrieval} which performs hybrid vector + keyword search
+ * with Reciprocal Rank Fusion scoring.
+ */
 @Component
 @RequiredArgsConstructor
 public class KnowledgeTools {
